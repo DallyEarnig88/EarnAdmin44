@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin – Referrals & Devices</title>
+<link rel="stylesheet" href="assets/css/admin.css">
+</head>
+<body>
+<div class="mobile-overlay" id="mobileOverlay"></div>
+<div class="admin-layout">
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo"><div class="sl-ico">🛡️</div><div><div class="sl-name">EarnPro</div><div class="sl-sub">Admin Panel</div></div></div>
+  <nav class="sidebar-nav">
+    <div class="snav-section">Main</div>
+    <a href="dashboard.html" class="snav-item"><span class="si-ico">📊</span>Dashboard</a>
+    <a href="users.html" class="snav-item"><span class="si-ico">👥</span>Users</a>
+    <a href="network.html" class="snav-item active"><span class="si-ico">🔗</span>Referrals &amp; Devices</a>
+    <div class="snav-section">Content</div>
+    <a href="tasks.html" class="snav-item"><span class="si-ico">✅</span>Tasks</a>
+    <a href="notices.html" class="snav-item"><span class="si-ico">📢</span>Notices</a>
+    <div class="snav-section">Finance</div>
+    <a href="withdraw.html" class="snav-item"><span class="si-ico">💸</span>Withdrawals</a>
+    <div class="snav-section">Config</div>
+    <a href="settings.html" class="snav-item"><span class="si-ico">⚙️</span>Settings</a>
+  </nav>
+  <div class="sidebar-foot">
+    <div class="admin-info"><div class="admin-av" id="adminAv">A</div><div><div class="admin-uname" id="adminName">Admin</div><div class="admin-role">🛡️ Administrator</div></div></div>
+    <button class="btn btn-ghost btn-full btn-sm" id="logoutBtn">🚪 Logout</button>
+  </div>
+</aside>
+<div class="main">
+  <div class="topbar">
+    <div style="display:flex;align-items:center;gap:12px"><button class="mobile-menu-btn" id="menuBtn">☰</button><h1>🔗 Referrals &amp; Devices</h1></div>
+    <span style="font-size:12px;color:var(--t3)" id="topSummary"></span>
+  </div>
+  <div class="content">
+
+    <!-- STATS -->
+    <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+      <div class="stat-box"><div class="stat-ico">🔗</div><div class="stat-val" id="st-refTotal">–</div><div class="stat-lbl">Total Referrals</div></div>
+      <div class="stat-box"><div class="stat-ico">💰</div><div class="stat-val" id="st-refBonus">–</div><div class="stat-lbl">Bonus Paid Out</div></div>
+      <div class="stat-box"><div class="stat-ico">📱</div><div class="stat-val" id="st-devTotal">–</div><div class="stat-lbl">Locked Devices</div></div>
+      <div class="stat-box"><div class="stat-ico">⚠️</div><div class="stat-val" id="st-devDupe">–</div><div class="stat-lbl">Shared / Duplicate</div></div>
+    </div>
+
+    <!-- TABS -->
+    <div class="ftabs">
+      <div class="ftab active" id="ft-referrals" onclick="switchTab('referrals')">🔗 Referrals</div>
+      <div class="ftab" id="ft-devices" onclick="switchTab('devices')">📱 Devices</div>
+    </div>
+
+    <!-- REFERRALS PANEL -->
+    <div id="panel-referrals">
+      <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <input type="text" id="refSearch" class="ifield" placeholder="🔍 Search by username or UID..." style="flex:1;min-width:200px">
+      </div>
+      <div class="card" style="padding:0">
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>New User</th><th>Referred By</th><th>Bonus</th><th>Date</th><th>Action</th></tr></thead>
+          <tbody id="refTable"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- DEVICES PANEL -->
+    <div id="panel-devices" style="display:none">
+      <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <input type="text" id="devSearch" class="ifield" placeholder="🔍 Search by username or fingerprint..." style="flex:1;min-width:200px">
+      </div>
+      <div class="card" style="padding:0">
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>Username</th><th>Device ID</th><th>Registered</th><th>Linked User</th><th>Action</th></tr></thead>
+          <tbody id="devTable"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<script type="module">
+import { auth, db } from './assets/firebase/firebase.js';
+import { collection, getDocs, deleteDoc, updateDoc, doc, getDoc, query, orderBy } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { signOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { requireAdmin, toast, ago, initMobileSidebar } from './assets/js/admin.js';
+
+let allRefs = [], allDevices = [], usersMap = {}, currentTab = 'referrals';
+
+requireAdmin(async (user, udata) => {
+  document.getElementById('adminAv').textContent = (udata.username||'A')[0].toUpperCase();
+  document.getElementById('adminName').textContent = udata.username||'Admin';
+  initMobileSidebar();
+  loadAll();
+});
+
+async function loadAll() {
+  const [usersSnap, refsSnap, devSnap] = await Promise.all([
+    getDocs(collection(db,'users')),
+    getDocs(collection(db,'referrals')),
+    getDocs(collection(db,'devices'))
+  ]);
+
+  usersMap = {};
+  usersSnap.forEach(d => usersMap[d.id] = { id: d.id, ...d.data() });
+
+  allRefs = [];
+  refsSnap.forEach(d => allRefs.push({ id: d.id, ...d.data() }));
+  allRefs.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+
+  allDevices = [];
+  devSnap.forEach(d => allDevices.push({ id: d.id, ...d.data() }));
+  allDevices.sort((a,b) => (b.registeredAt?.seconds||0) - (a.registeredAt?.seconds||0));
+
+  renderStats();
+  renderRefs(allRefs);
+  renderDevices(allDevices);
+}
+
+function renderStats() {
+  document.getElementById('st-refTotal').textContent = allRefs.length;
+  const bonusTotal = allRefs.reduce((s,r) => s + parseFloat(r.bonus || 0), 0);
+  document.getElementById('st-refBonus').textContent = '৳' + bonusTotal.toFixed(0);
+  document.getElementById('st-devTotal').textContent = allDevices.length;
+
+  // Detect devices shared by more than one uid across fingerprint/localId records
+  const byUid = {};
+  allDevices.forEach(d => {
+    const owner = d.uid;
+    if (!owner) return;
+    byUid[owner] = (byUid[owner] || 0) + 1;
+  });
+  const dupeCount = Object.values(byUid).filter(c => c > 1).length;
+  document.getElementById('st-devDupe').textContent = dupeCount;
+}
+
+function renderRefs(list) {
+  const tb = document.getElementById('refTable');
+  document.getElementById('topSummary').textContent = allRefs.length + ' referrals · ' + allDevices.length + ' devices';
+  if (!list.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">No referrals yet</td></tr>'; return; }
+  tb.innerHTML = '';
+  list.forEach(r => {
+    const newUser = usersMap[r.newUserId || r.id];
+    const referrer = usersMap[r.referrerId];
+    tb.innerHTML += `<tr>
+      <td><b>${newUser?.username || r.newUsername || '–'}</b><br><span style="font-size:9px;color:var(--t3);font-family:monospace">${(r.newUserId||r.id||'').slice(0,12)}</span></td>
+      <td><b>${referrer?.username || r.referrerUsername || '–'}</b><br><span style="font-size:9px;color:var(--t3);font-family:monospace">${(r.referrerId||'').slice(0,12)}</span></td>
+      <td style="color:var(--green);font-weight:700">৳${parseFloat(r.bonus||0).toFixed(2)}</td>
+      <td style="font-size:11px;color:var(--t3)">${ago(r.createdAt)}</td>
+      <td><button class="btn btn-red btn-sm" onclick="delRef('${r.id}')">🗑</button></td>
+    </tr>`;
+  });
+}
+
+function renderDevices(list) {
+  const tb = document.getElementById('devTable');
+  if (!list.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">No locked devices</td></tr>'; return; }
+  tb.innerHTML = '';
+  list.forEach(d => {
+    const linkedUser = usersMap[d.uid];
+    const isLid = d.id.startsWith('lid_');
+    tb.innerHTML += `<tr>
+      <td><b>${d.username || linkedUser?.username || '–'}</b></td>
+      <td style="font-family:monospace;font-size:11px;color:var(--t3)">${isLid?'📟 local: ':'🔑 fp: '}${d.id.replace('lid_','').slice(0,18)}</td>
+      <td style="font-size:11px;color:var(--t3)">${ago(d.registeredAt)}</td>
+      <td>${linkedUser ? `<span class="schip s-ok">${linkedUser.username}</span>` : '<span class="schip s-ban">Orphaned</span>'}</td>
+      <td><button class="btn btn-ghost btn-sm" title="Unlock — allows a new registration from this device" onclick="delDevice('${d.id}')">🔓 Unlock</button></td>
+    </tr>`;
+  });
+}
+
+document.getElementById('refSearch').addEventListener('input', e => {
+  const q = e.target.value.toLowerCase();
+  if (!q) { renderRefs(allRefs); return; }
+  renderRefs(allRefs.filter(r => {
+    const nu = usersMap[r.newUserId || r.id];
+    const ru = usersMap[r.referrerId];
+    return (nu?.username||'').toLowerCase().includes(q) ||
+           (ru?.username||'').toLowerCase().includes(q) ||
+           (r.newUserId||'').toLowerCase().includes(q) ||
+           (r.referrerId||'').toLowerCase().includes(q);
+  }));
+});
+
+document.getElementById('devSearch').addEventListener('input', e => {
+  const q = e.target.value.toLowerCase();
+  if (!q) { renderDevices(allDevices); return; }
+  renderDevices(allDevices.filter(d =>
+    (d.username||'').toLowerCase().includes(q) || d.id.toLowerCase().includes(q)
+  ));
+});
+
+window.switchTab = t => {
+  currentTab = t;
+  document.getElementById('ft-referrals').classList.toggle('active', t === 'referrals');
+  document.getElementById('ft-devices').classList.toggle('active', t === 'devices');
+  document.getElementById('panel-referrals').style.display = t === 'referrals' ? 'block' : 'none';
+  document.getElementById('panel-devices').style.display = t === 'devices' ? 'block' : 'none';
+};
+
+window.delRef = async id => {
+  if (!confirm('Delete this referral record? This does NOT remove the bonus already paid.')) return;
+  await deleteDoc(doc(db,'referrals',id));
+  allRefs = allRefs.filter(r => r.id !== id);
+  renderStats();
+  renderRefs(allRefs);
+  toast('Referral record deleted', 'warn');
+};
+
+window.delDevice = async id => {
+  if (!confirm('Unlock this device? The user tied to this fingerprint will be able to register a new account from it.')) return;
+  await deleteDoc(doc(db,'devices',id));
+  allDevices = allDevices.filter(d => d.id !== id);
+  renderStats();
+  renderDevices(allDevices);
+  toast('Device unlocked ✅', 'ok');
+};
+
+document.getElementById('logoutBtn').addEventListener('click', async () => { await signOut(auth); location.replace('login.html'); });
+</script>
+</body>
+</html>
